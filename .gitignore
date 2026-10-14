@@ -1,0 +1,41 @@
+# Environment and secrets (CRITICAL)
+.env
+*.env
+.env.local
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node & Frontend build
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+.eslintcache
+
+# Local databases & Chroma persistent storage
+data/chroma_db/
+data/*.db
+data/*.sqlite3
+*.db
+*.sqlite
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
