@@ -44,7 +44,7 @@ class LLMClient:
         }
 
     def _call_gemini(self, user_prompt: str, system_instruction: str = "") -> Dict[str, Any]:
-        """Calls Google Gemini 2.5 Flash API."""
+        """Calls Google Gemini 2.5 Flash API with explicit thinking budget zero to avoid token truncation."""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.gemini_key}"
         
         payload: Dict[str, Any] = {
@@ -55,7 +55,10 @@ class LLMClient:
             ],
             "generationConfig": {
                 "temperature": 0.2,
-                "maxOutputTokens": 600,
+                "maxOutputTokens": 2048,
+                "thinkingConfig": {
+                    "thinkingBudget": 0
+                }
             }
         }
         if system_instruction:
@@ -64,17 +67,21 @@ class LLMClient:
             }
 
         try:
-            with httpx.Client(timeout=12.0) as client:
+            with httpx.Client(timeout=15.0) as client:
                 resp = client.post(url, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
                     candidates = data.get("candidates", [])
                     if candidates and "content" in candidates[0]:
                         parts = candidates[0]["content"].get("parts", [])
-                        if parts:
-                            text = parts[0].get("text", "").strip()
+                        # Extract all non-thought text parts
+                        full_text = "".join(
+                            p.get("text", "") for p in parts 
+                            if "text" in p and not p.get("thought", False)
+                        ).strip()
+                        if full_text:
                             return {
-                                "text": text,
+                                "text": full_text,
                                 "provider": "Google Gemini",
                                 "model": "gemini-2.5-flash",
                                 "success": True
@@ -105,7 +112,7 @@ class LLMClient:
             "model": model_name,
             "messages": messages,
             "temperature": 0.2,
-            "max_tokens": 600
+            "max_tokens": 1024
         }
 
         try:

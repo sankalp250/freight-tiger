@@ -1,7 +1,7 @@
 import os
 import sqlite3
 from collections import defaultdict
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple,Optional
 from backend.app.core.aggregator import load_shipment_records, aggregate_weekly_route_costs
 from backend.app.core.baselines import compute_all_route_week_baselines
 from backend.app.core.detector import AnomalyDetector
