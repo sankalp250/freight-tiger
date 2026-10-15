@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from .llm_client import LLMClient
 
 class FreightAssistant:
@@ -13,6 +13,46 @@ class FreightAssistant:
         self.routes = sorted(list(set(r["route"] for r in self.records)))
         self.llm = LLMClient()
 
+    def _resolve_route_from_query(self, query: str) -> Optional[str]:
+        """
+        Intelligently resolves the target corridor from natural language queries,
+        handling both full route mentions ('Delhi-Jaipur', 'Delhi to Jaipur')
+        and single-city landmarks ('Jaipur', 'Pune', 'Bangalore').
+        """
+        q_lower = query.lower()
+
+        # 1. Exact pair matching (e.g. "delhi" and "jaipur" anywhere in query)
+        for r in self.routes:
+            orig, dest = r.split("-")
+            if (orig.lower() in q_lower and dest.lower() in q_lower) or r.lower() in q_lower:
+                return r
+
+        # 2. Unique destination/origin anchors
+        unique_anchors = {
+            "jaipur": "Delhi-Jaipur",
+            "pune": "Mumbai-Pune",
+            "bangalore": "Chennai-Bangalore",
+            "bhubaneswar": "Kolkata-Bhubaneswar",
+            "ahmedabad": "Ahmedabad-Mumbai",
+        }
+        for city, route in unique_anchors.items():
+            if re.search(r'\b' + city + r'\b', q_lower):
+                return route
+
+        # 3. Common hub disambiguation
+        if "kolkata" in q_lower:
+            return "Kolkata-Bhubaneswar"
+        if "chennai" in q_lower:
+            return "Delhi-Chennai" if "delhi" in q_lower else "Chennai-Bangalore"
+        if "mumbai" in q_lower:
+            if "delhi" in q_lower:
+                return "Mumbai-Delhi"
+            if "pune" in q_lower:
+                return "Mumbai-Pune"
+            return "Ahmedabad-Mumbai"
+
+        return None
+
     def answer_query(self, query: str) -> Dict[str, Any]:
         """
         Interprets natural language queries, gathers grounded context, and invokes
@@ -20,13 +60,8 @@ class FreightAssistant:
         """
         q_lower = query.lower()
 
-        # 1. Identify if a specific route is queried
-        matched_route = None
-        for r in self.routes:
-            orig, dest = r.split("-")
-            if (orig.lower() in q_lower and dest.lower() in q_lower) or r.lower() in q_lower:
-                matched_route = r
-                break
+        # 1. Identify corridor
+        matched_route = self._resolve_route_from_query(query)
 
         # 2. Identify if month/year is mentioned
         months = {
@@ -62,7 +97,7 @@ class FreightAssistant:
         # 5. Build Grounded Context for the LLM
         context_lines = []
         citations = []
-        for a in anomalies[:6]:  # Limit top 6 anomalies for prompt brevity
+        for a in anomalies[:8]:
             note_id = a.get("matched_note_id", "")
             if note_id:
                 citations.append(note_id)
@@ -82,9 +117,9 @@ class FreightAssistant:
             "Your job is to explain freight shipping cost changes, baselines, and anomalies across Indian trucking corridors. "
             "GROUND RULES: "
             "1. ONLY state a cost rise is justified if supported by a genuine disruption note (e.g. N001 floods, N002 festival surcharge, N003 diesel hike). "
-            "2. If a note states costs were not affected (N005), routes are not in dataset (N004), demand was stable (N006), or costs were absorbed without rate changes (N010), do NOT justify the cost rise. State that the note does not justify a rate increase. "
+            "2. If a note states costs were not affected (N005), routes are not in dataset (N004), demand was stable (N006), or costs were absorbed without rate changes (N010), do NOT justify the cost rise. State clearly that the note does not justify a rate increase. "
             "3. If no note matches, declare the cost rise unexplained and flagged for human review. "
-            "4. Keep your answer professional, concise (2-4 paragraphs max), and grounded in the data."
+            "4. Keep your answer professional, concise (2-3 paragraphs max), and grounded in the data."
         )
 
         prompt = f"""
@@ -112,11 +147,16 @@ Please answer the user's question clearly in plain English, citing exact notes a
                 "provider": llm_res.get("provider", "Gemini")
             }
 
-        # Deterministic Fallback if offline
-        fallback_text = (
-            f"Freight Watchdog evaluated {len(anomalies)} cost surges for {matched_route or 'this corridor'}. "
-            + (" ".join([a['reason'] for a in anomalies[:2]]) if anomalies else "Rates remained within normal baseline boundaries.")
-        )
+        # Deterministic Grounded Fallback if LLM is unavailable
+        if anomalies:
+            explanations = [f"• Week {a['week_of']} ({a['route']}): {a['reason']}" for a in anomalies[:3]]
+            fallback_text = (
+                f"Freight Watchdog evaluated {len(anomalies)} cost surges for {matched_route or 'this corridor'}:\n\n"
+                + "\n\n".join(explanations)
+            )
+        else:
+            fallback_text = f"For {matched_route or 'the queried corridor'}, shipping costs remained within normal historical and peer boundaries. No unexplained rate spikes were detected."
+
         return {
             "answer": fallback_text,
             "matched_route": matched_route,

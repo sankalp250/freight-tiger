@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE } from '../config';
 
 export default function CorridorTrends({ corridors, selectedRoute, onSelectRoute }) {
   const [trendsData, setTrendsData] = useState(null);
@@ -8,7 +9,7 @@ export default function CorridorTrends({ corridors, selectedRoute, onSelectRoute
   useEffect(() => {
     if (!selectedRoute) return;
     setLoading(true);
-    fetch(`http://127.0.0.1:8000/api/trends?route=${encodeURIComponent(selectedRoute)}`)
+    fetch(`${API_BASE}/api/trends?route=${encodeURIComponent(selectedRoute)}`)
       .then((res) => res.json())
       .then((data) => {
         setTrendsData(data);

@@ -15,85 +15,28 @@ router = APIRouter(prefix="/api")
 def get_overview_summary():
     db = DatabaseManager.get_instance()
     db.initialize()
-
-    routes = set(r["route"] for r in db.evaluated_records)
-    weeks = sorted(list(set(r["week_of"] for r in db.evaluated_records)))
-    unjustified = sum(1 for r in db.evaluated_records if r["flagged"] == "Yes")
-    justified = sum(1 for r in db.evaluated_records if r["flagged"] == "No (justified)")
-
-    return OverviewSummary(
-        total_shipments=db.raw_records_count,
-        total_corridors=len(routes),
-        total_weeks=len(weeks),
-        total_unjustified_anomalies=unjustified,
-        total_justified_anomalies=justified,
-        date_range={"start": weeks[0], "end": weeks[-1]}
-    )
+    return db.summary_cache
 
 @router.get("/corridors", response_model=List[CorridorSummary])
 def get_corridors():
     db = DatabaseManager.get_instance()
     db.initialize()
-
-    from collections import defaultdict
-    by_route = defaultdict(list)
-    for r in db.evaluated_records:
-        by_route[r["route"]].append(r)
-
-    summaries = []
-    for route, items in sorted(by_route.items()):
-        total_cost = sum(i["total_cost"] for i in items)
-        total_tkm = sum(i["total_tonne_km"] for i in items)
-        avg_cost = total_cost / total_tkm if total_tkm > 0 else 0.0
-        shipment_count = sum(i["shipment_count"] for i in items)
-        unjustified = sum(1 for i in items if i["flagged"] == "Yes")
-        justified = sum(1 for i in items if i["flagged"] == "No (justified)")
-
-        summaries.append(CorridorSummary(
-            route=route,
-            origin=items[0]["origin"],
-            destination=items[0]["destination"],
-            route_type=items[0]["route_type"],
-            avg_cost_per_tonne_km=round(avg_cost, 2),
-            total_tonne_km=round(total_tkm, 2),
-            total_freight_cost=round(total_cost, 2),
-            shipment_count=shipment_count,
-            unjustified_anomalies_count=unjustified,
-            justified_anomalies_count=justified,
-        ))
-
-    return summaries
+    return db.corridors_cache
 
 @router.get("/trends")
 def get_corridor_trends(route: str = Query(..., description="Corridor name e.g. Mumbai-Pune")):
     db = DatabaseManager.get_instance()
     db.initialize()
 
-    filtered = [r for r in db.evaluated_records if r["route"] == route]
-    if not filtered:
+    trend = db.trends_cache.get(route)
+    if not trend:
+        # Fallback check for case-insensitive match
+        for r_name, t_data in db.trends_cache.items():
+            if r_name.lower() == route.lower():
+                return t_data
         raise HTTPException(status_code=404, detail=f"Corridor '{route}' not found")
 
-    sorted_trends = sorted(filtered, key=lambda x: x["week_of"])
-    return {
-        "route": route,
-        "route_type": sorted_trends[0]["route_type"],
-        "origin": sorted_trends[0]["origin"],
-        "destination": sorted_trends[0]["destination"],
-        "weeks": [
-            {
-                "week_of": r["week_of"],
-                "cost_per_tonne_km": r["cost_per_tonne_km"],
-                "hist_avg": round(r["hist_avg"], 2) if r["hist_avg"] else None,
-                "peer_avg": round(r["peer_avg"], 2) if r["peer_avg"] else None,
-                "hist_pct": round(r["hist_pct"], 1) if r["hist_pct"] else None,
-                "peer_pct": round(r["peer_pct"], 1) if r["peer_pct"] else None,
-                "flagged": r["flagged"],
-                "matched_note_id": r["matched_note_id"],
-                "reason": r["reason"]
-            }
-            for r in sorted_trends
-        ]
-    }
+    return trend
 
 @router.get("/anomalies", response_model=List[AnomalyItem])
 def get_anomalies(
@@ -103,32 +46,14 @@ def get_anomalies(
     db = DatabaseManager.get_instance()
     db.initialize()
 
-    records = db.evaluated_records
+    status_key = status.lower() if status in ("flagged", "justified") else "all"
+    cached_list = db.anomalies_cache.get(status_key, db.anomalies_cache["all"])
+
     if route:
-        records = [r for r in records if r["route"] == route]
+        r_lower = route.lower()
+        return [a for a in cached_list if a.route.lower() == r_lower]
 
-    if status == "flagged":
-        records = [r for r in records if r["flagged"] == "Yes"]
-    elif status == "justified":
-        records = [r for r in records if r["flagged"] == "No (justified)"]
-    else:
-        # Default to all flagged/justified anomalies
-        records = [r for r in records if r["flagged"] in ("Yes", "No (justified)")]
-
-    return [
-        AnomalyItem(
-            route=r["route"],
-            week_of=r["week_of"],
-            cost_per_tonne_km=r["cost_per_tonne_km"],
-            vs_own_history=r["vs_own_history"],
-            vs_similar_routes=r["vs_similar_routes"],
-            flagged=r["flagged"],
-            matched_note_id=r["matched_note_id"],
-            reason=r["reason"],
-            route_type=r["route_type"],
-        )
-        for r in records
-    ]
+    return cached_list
 
 @router.get("/notes")
 def get_notes():
@@ -161,7 +86,7 @@ def get_audit_metrics():
             "lookahead_safe": True
         },
         "token_cost_profile": {
-            "total_raw_shipments": 2941,
+            "total_raw_shipments": 2940,
             "total_route_weeks": 728,
             "candidate_spikes_investigated": 20,
             "llm_calls_executed": 20,

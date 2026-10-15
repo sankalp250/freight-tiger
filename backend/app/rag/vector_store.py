@@ -18,6 +18,9 @@ class DeterministicTextEmbedding(EmbeddingFunction):
     def name(self) -> str:
         return "deterministic_text_embedding"
 
+    def get_config(self) -> Dict[str, Any]:
+        return {"dim": self.dim}
+
     def _embed_single(self, text: str) -> List[float]:
         vec = [0.0] * self.dim
         tokens = text.lower().replace("-", " ").split()

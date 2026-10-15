@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: freight-tiger-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DEFAULT_LLM_PROVIDER
+        value: gemini
+      - key: FALLBACK_LLM_PROVIDER
+        value: groq
+      - key: GROQ_FALLBACK_MODEL
+        value: qwen/qwen3.8-27b

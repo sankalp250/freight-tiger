@@ -4,6 +4,7 @@ import AboutView from './components/AboutView';
 import CorridorTrends from './components/CorridorTrends';
 import ShippingAlertsTable from './components/ShippingAlertsTable';
 import ChatAssistantView from './components/ChatAssistantView';
+import { API_BASE } from './config';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('about');
@@ -16,9 +17,9 @@ export default function App() {
 
   useEffect(() => {
     Promise.all([
-      fetch('http://127.0.0.1:8000/api/summary').then((r) => r.json()),
-      fetch('http://127.0.0.1:8000/api/corridors').then((r) => r.json()),
-      fetch('http://127.0.0.1:8000/api/anomalies').then((r) => r.json()),
+      fetch(`${API_BASE}/api/summary`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/corridors`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/anomalies`).then((r) => r.json()),
     ])
       .then(([sumData, corrData, anomData]) => {
         setSummary(sumData);
